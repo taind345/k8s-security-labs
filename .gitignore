@@ -1,0 +1,11 @@
+# System & IDE
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Local logs or environment
+*.log
+.env

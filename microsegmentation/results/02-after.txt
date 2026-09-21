@@ -1,0 +1,25 @@
+================================================================================
+PHASE C: AUTOMATED NETWORKPOLICY VERIFICATION MATRIX (AFTER POLICIES)
+Date: Mon Sep 21 08:43:25 AM UTC 2026
+Active NetworkPolicies in namespace 'shop':
+NAME                        POD-SELECTOR    AGE
+allow-backend-to-db         tier=db         3m28s
+allow-frontend-ingress      tier=frontend   3m28s
+allow-frontend-to-backend   tier=backend    3m28s
+default-deny-ingress        <none>          3m28s
+--------------------------------------------------------------------------------
+| Source Tier / Pod       | Destination Service | Expected | Actual  | Status |
+|-------------------------|---------------------|----------|---------|--------|
+| Client (unlabeled)      | frontend:80         | ALLOWED  | ALLOWED | PASS   |
+| Frontend (tier=frontend) | backend:80          | ALLOWED  | ALLOWED | PASS   |
+| Backend (tier=backend)  | db:80               | ALLOWED  | ALLOWED | PASS   |
+| Frontend (tier=frontend) | db:80               | BLOCKED  | BLOCKED | PASS   |
+| Rogue (role=attacker)   | backend:80          | BLOCKED  | BLOCKED | PASS   |
+| Rogue (role=attacker)   | db:80               | BLOCKED  | BLOCKED | PASS   |
+--------------------------------------------------------------------------------
+Summary: 6/6 tests passed.
+
+Direct verification from running deployment/frontend to db:
+Command: kubectl exec -n shop deploy/frontend -- timeout 3 wget -q -O- --timeout=3 http://db
+[+] Verified: Connection timed out as expected (exit code 143/non-zero).
+[+] Lateral movement from Frontend to Database is successfully BLOCKED!

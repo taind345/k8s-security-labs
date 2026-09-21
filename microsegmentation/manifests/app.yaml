@@ -1,0 +1,196 @@
+# ==============================================================================
+# Microsegmentation Lab: 3-Tier Application Manifest
+# ------------------------------------------------------------------------------
+# Architecture:
+#   [Client/External] -> [Frontend:80] -> [Backend:80] -> [Database:80]
+#
+# Threat Model:
+#   In a default Kubernetes cluster without NetworkPolicies, the flat network model
+#   allows ANY pod to reach ANY other pod across all namespaces. If an attacker
+#   compromises the internet-facing Frontend (e.g., via SSRF or RCE), they can
+#   directly query the Database on port 80/TCP, bypassing backend business logic.
+#
+# Design Decisions:
+#   - Pinned image 'nginx:1.27.4-alpine' to avoid supply chain drift and mutable tags.
+#   - Explicit label 'tier: <tier-name>' used as the boundary selector for Calico
+#     NetworkPolicies.
+#   - ClusterIP Services expose endpoints internally within the cluster DNS scope.
+# ==============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    app.kubernetes.io/part-of: shop-app
+    # Label namespace to support namespace-scoped network policies and PSS
+    security.enterprise.io/tier: multi-tier
+---
+# ------------------------------------------------------------------------------
+# Tier 1: Frontend Deployment & Service
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: shop
+  labels:
+    app: shop
+    tier: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shop
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: shop
+        tier: frontend
+    spec:
+      containers:
+      - name: frontend
+        # Pinned lightweight alpine image
+        image: nginx:1.27.4-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: shop
+  labels:
+    app: shop
+    tier: frontend
+spec:
+  type: ClusterIP
+  selector:
+    app: shop
+    tier: frontend
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+---
+# ------------------------------------------------------------------------------
+# Tier 2: Backend API Deployment & Service
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: shop
+  labels:
+    app: shop
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shop
+      tier: backend
+  template:
+    metadata:
+      labels:
+        app: shop
+        tier: backend
+    spec:
+      containers:
+      - name: backend
+        image: nginx:1.27.4-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: shop
+  labels:
+    app: shop
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: shop
+    tier: backend
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+---
+# ------------------------------------------------------------------------------
+# Tier 3: Database Deployment & Service
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  namespace: shop
+  labels:
+    app: shop
+    tier: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shop
+      tier: db
+  template:
+    metadata:
+      labels:
+        app: shop
+        tier: db
+    spec:
+      containers:
+      - name: db
+        image: nginx:1.27.4-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: shop
+  labels:
+    app: shop
+    tier: db
+spec:
+  type: ClusterIP
+  selector:
+    app: shop
+    tier: db
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80

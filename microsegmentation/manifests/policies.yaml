@@ -1,0 +1,110 @@
+# ==============================================================================
+# Microsegmentation Lab: Ingress NetworkPolicy Matrix
+# ------------------------------------------------------------------------------
+# Zero-Trust Architecture Strategy:
+#   1. Default Deny: Isolate every pod in namespace 'shop'. By default, all incoming
+#      traffic is dropped unless explicitly permitted by an allowlist rule.
+#   2. Least Privilege Whitelisting:
+#      - Allow External / Any -> Frontend (TCP/80)
+#      - Allow Frontend -> Backend (TCP/80)
+#      - Allow Backend -> Database (TCP/80)
+#   3. Security Boundary:
+#      - Frontend -> Database is NOT allowed (blocks lateral movement).
+#      - Unlabeled/Rogue Pods -> Backend/Database is NOT allowed (blocks rogue pods).
+#
+# Engine:
+#   Calico CNI reads these NetworkPolicy objects and programs iptables / eBPF
+#   chains on Linux kernel interfaces to filter packets at the pod veth interface.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Policy 1: Baseline Default-Deny Ingress for Namespace 'shop'
+# ------------------------------------------------------------------------------
+# Why: Without this rule, pods that have no specific NetworkPolicy targeting them
+# are considered "non-isolated" and accept all ingress traffic. Selecting '{}'
+# puts all current and future pods in the namespace into isolated mode.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: shop
+spec:
+  podSelector: {} # Empty selector matches all pods in namespace 'shop'
+  policyTypes:
+  - Ingress
+  # Empty 'ingress' list means NO incoming traffic is allowed by default
+---
+# ------------------------------------------------------------------------------
+# Policy 2: Allow Inbound Traffic to Frontend (Public Web Layer)
+# ------------------------------------------------------------------------------
+# Why: The frontend acts as the user-facing ingress tier. It must accept inbound
+# HTTP traffic from external clients, Ingress Controllers, or test runners.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 80
+    # Omitting 'from' allows traffic from ANY source (internal or external) on port 80
+---
+# ------------------------------------------------------------------------------
+# Policy 3: Allow Frontend -> Backend API Only
+# ------------------------------------------------------------------------------
+# Why: The backend handles application logic and data processing. Only authorized
+# frontend pods should communicate with the backend on its API port (TCP 80).
+# Unlabeled pods, external sources, and the database tier are denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          tier: frontend
+    ports:
+    - protocol: TCP
+      port: 80
+---
+# ------------------------------------------------------------------------------
+# Policy 4: Allow Backend -> Database Only (Critical Lateral Movement Defense)
+# ------------------------------------------------------------------------------
+# Why: The database holds persistent sensitive data. Only backend application
+# containers should ever establish connections to it.
+# Even if an attacker gains root/RCE on the frontend pod, Calico network policy
+# will block the packet at the kernel filter level before it ever reaches the DB.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-db
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      tier: db
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 80

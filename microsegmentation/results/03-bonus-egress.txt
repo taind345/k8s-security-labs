@@ -1,0 +1,22 @@
+================================================================================
+BONUS: EGRESS NETWORKPOLICY VERIFICATION
+Date: Mon Sep 21 08:43:56 AM UTC 2026
+Active NetworkPolicies in namespace 'shop':
+NAME                               POD-SELECTOR    AGE
+allow-backend-egress-to-db         tier=backend    2s
+allow-backend-to-db                tier=db         3m59s
+allow-dns-egress                   <none>          2s
+allow-frontend-egress-to-backend   tier=frontend   2s
+allow-frontend-ingress             tier=frontend   3m59s
+allow-frontend-to-backend          tier=backend    3m59s
+default-deny-egress                <none>          2s
+default-deny-ingress               <none>          3m59s
+--------------------------------------------------------------------------------
+| Source Tier / Pod       | Destination / Protocol  | Expected | Actual  | Status |
+|-------------------------|-------------------------|----------|---------|--------|
+| Frontend (tier=frontend) | CoreDNS (UDP 53)        | ALLOWED  | ALLOWED | PASS   |
+| Frontend (tier=frontend) | backend:80              | ALLOWED  | ALLOWED | PASS   |
+| Frontend (tier=frontend) | db:80                   | BLOCKED  | BLOCKED | PASS   |
+| Database (tier=db)      | External / Internet     | BLOCKED  | BLOCKED | PASS   |
+--------------------------------------------------------------------------------
+Summary: 4/4 egress tests passed.

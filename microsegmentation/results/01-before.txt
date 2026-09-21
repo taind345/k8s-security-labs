@@ -1,0 +1,44 @@
+================================================================================
+PHASE A: BASELINE CONNECTIVITY TEST (BEFORE NETWORKPOLICY ENFORCEMENT)
+Date: Mon Sep 21 08:39:43 AM UTC 2026
+Cluster Nodes:
+NAME           STATUS   ROLES           AGE     VERSION   INTERNAL-IP    EXTERNAL-IP   OS-IMAGE                         KERNEL-VERSION                  CONTAINER-RUNTIME
+minikube       Ready    control-plane   4m46s   v1.37.0   192.168.49.2   <none>        Debian GNU/Linux 12 (bookworm)   7.2.5-200.fc44.x86_64 (amd64)   containerd://2.3.4
+minikube-m02   Ready    <none>          4m17s   v1.37.0   192.168.49.3   <none>        Debian GNU/Linux 12 (bookworm)   7.2.5-200.fc44.x86_64 (amd64)   containerd://2.3.4
+
+Pods in namespace 'shop':
+NAME                        READY   STATUS    RESTARTS   AGE   IP               NODE           NOMINATED NODE   READINESS GATES   LABELS
+backend-5cfb8f568b-m2s24    1/1     Running   0          2s    10.244.205.196   minikube-m02   <none>           <none>            app=shop,pod-template-hash=5cfb8f568b,tier=backend
+db-58fc9b665b-r2zzg         1/1     Running   0          2s    10.244.205.197   minikube-m02   <none>           <none>            app=shop,pod-template-hash=58fc9b665b,tier=db
+frontend-7d7767b7bd-q4qdh   1/1     Running   0          2s    10.244.205.195   minikube-m02   <none>           <none>            app=shop,pod-template-hash=7d7767b7bd,tier=frontend
+
+Testing lateral connection: Frontend Pod -> Database Service (http://db.shop.svc.cluster.local:80)
+Command executed from inside frontend pod:
+kubectl exec -n shop deploy/frontend -- wget -q -O- --timeout=3 http://db
+--------------------------------------------------------------------------------
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+
+--------------------------------------------------------------------------------
+RESULT: VULNERABLE TO LATERAL MOVEMENT (HTTP 200 OK received from database)

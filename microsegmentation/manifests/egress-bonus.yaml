@@ -1,0 +1,105 @@
+# ==============================================================================
+# Microsegmentation Lab: Egress NetworkPolicy Matrix (Bonus)
+# ------------------------------------------------------------------------------
+# Why Egress Filtering Matters in DevSecOps:
+#   Ingress controls what can ENTER a pod; Egress controls what a pod can OUTBOUND.
+#   If an attacker succeeds in exploiting an application (e.g. Log4j, command injection),
+#   egress filtering prevents:
+#     1. C2 reverse shells back to attacker IP addresses.
+#     2. Downloading secondary payloads/malware tools (curl/wget to internet).
+#     3. Data exfiltration to external or unauthorized internal endpoints.
+#
+# Key Challenge in Kubernetes Egress:
+#   Kubernetes service discovery relies on CoreDNS in 'kube-system' (port 53 UDP/TCP).
+#   A naive default-deny egress completely breaks DNS resolution!
+#   Therefore, a secure egress policy MUST explicitly permit DNS traffic to CoreDNS.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Policy 1: Default-Deny All Egress for Namespace 'shop'
+# ------------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: shop
+spec:
+  podSelector: {} # Applies to every pod in the 'shop' namespace
+  policyTypes:
+  - Egress
+  # Empty egress list drops all outbound packets by default
+---
+# ------------------------------------------------------------------------------
+# Policy 2: Allow Essential CoreDNS Resolution
+# ------------------------------------------------------------------------------
+# Why: Enables pods in 'shop' to resolve internal Kubernetes Service names
+# (e.g. backend.shop.svc.cluster.local) via CoreDNS in 'kube-system' on port 53.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: shop
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+# ------------------------------------------------------------------------------
+# Policy 3: Allow Frontend Egress -> Backend Only
+# ------------------------------------------------------------------------------
+# Why: Frontend is only allowed to initiate outbound HTTP connections to Backend pods.
+# Frontend cannot initiate outbound connections to the Database or external internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress-to-backend
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 80
+---
+# ------------------------------------------------------------------------------
+# Policy 4: Allow Backend Egress -> Database Only
+# ------------------------------------------------------------------------------
+# Why: Backend can only initiate outbound connections to the Database tier.
+# It cannot initiate connections back to Frontend or to external endpoints.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress-to-db
+  namespace: shop
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          tier: db
+    ports:
+    - protocol: TCP
+      port: 80
