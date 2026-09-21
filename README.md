@@ -1,143 +1,129 @@
-# Kubernetes Zero-Trust Microsegmentation Lab
+# Kubernetes Network Microsegmentation Lab
 
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.31+-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Calico](https://img.shields.io/badge/CNI-Calico-FA5B31?logo=calico&logoColor=white)](https://www.tigera.io/project-calico/)
-[![Security](https://img.shields.io/badge/Security-Zero%20Trust%20Microsegmentation-green)](#threat-model)
+A practical lab demonstrating zero-trust network isolation for a 3-tier application (`frontend`, `backend`, `db`) running on Kubernetes with **Calico CNI**.
 
-An end-to-end, reproducible DevSecOps security lab demonstrating **Zero-Trust Network Microsegmentation** in Kubernetes using **Calico CNI**.
-
-This project models a 3-tier cloud application (`frontend`, `backend`, `database`) to prove that an attacker who achieves initial access or remote code execution on the public web tier is strictly contained and **cannot move laterally** to internal data services.
+The goal is simple: prove that even if the internet-facing `frontend` is compromised, network policies prevent it from reaching the `db` directly.
 
 ---
 
-## 🎯 Lab Objectives
-
-1. **Demonstrate Flat Network Insecurity**: Prove that default Kubernetes networking allows any compromised container to reach any other container across tiers without restriction (Phase A).
-2. **Implement Declarative Zero-Trust Ingress**: Apply a `default-deny` ingress baseline and whitelist only strictly necessary East-West flows (Phase B).
-3. **Automated Regression Verification**: Execute an automated regression test matrix using ephemeral probe containers with strict timeout constraints to ensure policy enforcement (Phase C).
-4. **Enforce DNS-Aware Egress Boundaries**: Implement egress filtering to block unauthorized outbound C2 communication while preserving CoreDNS service discovery.
-
----
-
-## 🏗️ Architecture & Traffic Matrix
+## Architecture & Traffic Flow
 
 ```text
-       [ External Client / Ingress Probe ]
-                       │
-                       ▼ (HTTP 80 - ALLOWED)
-             ┌───────────────────┐
-             │   tier=frontend   │ (Public Web Tier)
-             └─────────┬─────────┘
-                       │
-                       │ (HTTP 80 - ALLOWED)
-                       ▼
-             ┌───────────────────┐
-             │   tier=backend    │ (Internal API Tier)
-             └─────────┬─────────┘
-                       │
-                       │ (HTTP 80 - ALLOWED)
-                       ▼
-             ┌───────────────────┐
-             │      tier=db      │ (Database Tier)
-             └───────────────────┘
-
-  [BLOCKED FLOWS - Zero-Trust Boundary]:
-  ❌ Frontend  ────── (Direct HTTP 80) ────► DB       (BLOCKED by NetworkPolicy)
-  ❌ Rogue Pod ────── (Direct HTTP 80) ────► Backend  (BLOCKED by default-deny)
-  ❌ Rogue Pod ────── (Direct HTTP 80) ────► DB       (BLOCKED by default-deny)
-  ❌ DB Tier   ────── (Outbound/Egress) ───► Internet (BLOCKED by egress policy)
+  [ Client ] ──(HTTP 80)──► [ frontend ] ──(HTTP 80)──► [ backend ] ──(HTTP 80)──► [ db ]
+                                │
+                                └───❌ (Direct HTTP 80 BLOCKED)───────────────────► [ db ]
 ```
 
+| Source | Destination | Expected | Policy Enforced |
+|---|---|---|---|
+| Client | `frontend:80` | ALLOWED | `allow-frontend-ingress` |
+| `frontend` | `backend:80` | ALLOWED | `allow-frontend-to-backend` |
+| `backend` | `db:80` | ALLOWED | `allow-backend-to-db` |
+| **`frontend`** | **`db:80`** | **BLOCKED** | **`default-deny-ingress`** |
+| Rogue / Unlabeled Pod | `backend:80` | BLOCKED | `default-deny-ingress` |
+| Rogue / Unlabeled Pod | `db:80` | BLOCKED | `default-deny-ingress` |
+
 ---
 
-## 📁 Repository Layout
+## Project Structure
 
 ```text
-k8s-security-labs/
-├── README.md                      # Lab portfolio overview, quickstart, and interview guide
+.
+├── README.md
 └── microsegmentation/
     ├── manifests/
-    │   ├── app.yaml               # 3-tier deployment and services (frontend, backend, db)
-    │   ├── policies.yaml          # Ingress NetworkPolicies (Default-Deny + Whitelist)
-    │   └── egress-bonus.yaml      # Egress NetworkPolicies + CoreDNS (UDP/TCP 53) Whitelist
+    │   ├── app.yaml              # 3 deployments + clusterIP services
+    │   ├── policies.yaml         # Ingress network policies (default-deny + tier rules)
+    │   └── egress-bonus.yaml     # Optional: default-deny egress + CoreDNS whitelist
     ├── scripts/
-    │   ├── setup.sh               # Deploys application and records Phase A baseline
-    │   ├── verify.sh              # Applies policies and executes automated test matrix
-    │   └── cleanup.sh             # Idempotent teardown of all lab resources
-    ├── results/
-    │   ├── 01-before.txt          # Real output: Frontend -> DB succeeds before policy
-    │   ├── 02-after.txt           # Real output: Automated 6/6 PASS/FAIL Ingress matrix
-    │   └── 03-bonus-egress.txt    # Real output: Automated 4/4 PASS/FAIL Egress matrix
-    └── README.md                  # Comprehensive deep-dive & 5-question interview prep
+    │   ├── setup.sh              # Deploys app and logs baseline before policy
+    │   ├── verify.sh             # Applies policies and runs automated test matrix
+    │   └── cleanup.sh            # Deletes the shop namespace
+    └── results/
+        ├── 01-before.txt         # Raw output showing frontend -> db succeeds
+        ├── 02-after.txt          # Raw output showing 6/6 test matrix passed
+        └── 03-bonus-egress.txt   # Raw output showing egress & DNS test results
 ```
 
 ---
 
-## 💻 Environment & Prerequisites
+## Quickstart
 
-- **Host OS**: Fedora Linux (Bare metal, dual boot).
-  - SELinux: `Enforcing` (`targeted` mode).
-  - Firewall: `firewalld` active.
-- **Container Runtime**: Docker CE.
-- **Cluster**: Minikube with Docker driver and **Calico CNI** across 2 nodes:
+### Prerequisites
+- Linux host with Docker, `kubectl`, and `minikube` installed.
+- Minikube started with Calico (required to enforce `NetworkPolicy`):
   ```bash
   minikube start --driver=docker --cni=calico --nodes=2
   ```
-- **CLI Tools**: `kubectl`, `minikube`, `docker`.
-- **Pinned Container Images**:
-  - `nginx:1.27.4-alpine` (Application workloads)
-  - `busybox:1.37.0` (Testing probe pods)
 
----
-
-## ⚡ Quickstart & Reproduction Guide
-
-All scripts are written with `set -euo pipefail` and are 100% idempotent.
-
-### Step 1: Deploy & Record Baseline (Phase A)
+### 1. Deploy App & Check Baseline
 ```bash
 cd microsegmentation/scripts
 ./setup.sh
 ```
-*Output*: Deploys namespace `shop`, checks cluster readiness, tests the lateral path `frontend -> db`, and records output to `microsegmentation/results/01-before.txt`.
+Deploys the 3 tiers into namespace `shop`. Shows that on a default cluster, `frontend` can query `db` directly (HTTP 200). Output is saved to `results/01-before.txt`.
 
-### Step 2: Enforce Ingress Microsegmentation (Phase B & C)
+### 2. Apply Policies & Verify
 ```bash
 ./verify.sh
 ```
-*Output*: Enforces `default-deny-ingress` and whitelists tier traffic. Runs ephemeral probe pods with attached streams (`--rm -i`) and records the 6-test verification table to `microsegmentation/results/02-after.txt`.
+Applies `policies.yaml` and spins up ephemeral BusyBox pods to test all traffic paths with a 3-second timeout. Output is saved to `results/02-after.txt`.
 
-### Step 3: (Optional Bonus) Enforce Egress Filtering
+### 3. (Optional) Test Egress Filtering
 ```bash
 ./verify.sh --bonus-egress
 ```
-*Output*: Adds default-deny egress filtering, whitelists CoreDNS (port 53 UDP/TCP) and allowed East-West egress, and verifies that the database container cannot communicate outbound. Results are saved to `microsegmentation/results/03-bonus-egress.txt`.
+Applies `egress-bonus.yaml` to enforce default-deny egress, whitelisting only CoreDNS (UDP/TCP 53) and required tier-to-tier traffic. Output is saved to `results/03-bonus-egress.txt`.
 
-### Step 4: Teardown
+### 4. Cleanup
 ```bash
 ./cleanup.sh
 ```
 
 ---
 
-## 📊 Summary of Verified Results
+## Real Test Results
 
-| Result File | Phase / Focus | Key Finding | Status |
-| :--- | :--- | :--- | :--- |
-| [`01-before.txt`](./microsegmentation/results/01-before.txt) | **Phase A (Baseline)** | `kubectl exec frontend -- wget http://db` returned HTTP 200 OK. Confirmed vulnerable lateral movement. | **VULNERABLE (Expected)** |
-| [`02-after.txt`](./microsegmentation/results/02-after.txt) | **Phase C (Ingress Matrix)** | - Client -> Frontend: `ALLOWED`<br>- Frontend -> Backend: `ALLOWED`<br>- Backend -> DB: `ALLOWED`<br>- **Frontend -> DB: `BLOCKED`**<br>- Rogue -> Backend: `BLOCKED`<br>- Rogue -> DB: `BLOCKED` | **6/6 PASSED** |
-| [`03-bonus-egress.txt`](./microsegmentation/results/03-bonus-egress.txt) | **Bonus (Egress Matrix)** | - Frontend -> CoreDNS (UDP 53): `ALLOWED`<br>- Frontend -> Backend: `ALLOWED`<br>- Frontend -> DB: `BLOCKED`<br>- Database -> External Internet: `BLOCKED` | **4/4 PASSED** |
+### Before Policy (`01-before.txt`)
+```text
+kubectl exec -n shop deploy/frontend -- wget -q -O- --timeout=3 http://db
+HTTP/1.1 200 OK
+<title>Welcome to nginx!</title>
+...
+RESULT: VULNERABLE TO LATERAL MOVEMENT
+```
+
+### After Policy (`02-after.txt`)
+```text
+| Source Tier / Pod       | Destination Service | Expected | Actual  | Status |
+|-------------------------|---------------------|----------|---------|--------|
+| Client (unlabeled)      | frontend:80         | ALLOWED  | ALLOWED | PASS   |
+| Frontend (tier=frontend)| backend:80          | ALLOWED  | ALLOWED | PASS   |
+| Backend (tier=backend)  | db:80               | ALLOWED  | ALLOWED | PASS   |
+| Frontend (tier=frontend)| db:80               | BLOCKED  | BLOCKED | PASS   |
+| Rogue (role=attacker)   | backend:80          | BLOCKED  | BLOCKED | PASS   |
+| Rogue (role=attacker)   | db:80               | BLOCKED  | BLOCKED | PASS   |
+
+Summary: 6/6 tests passed.
+```
 
 ---
 
-## 💼 Interview Talking Points (Cybersecurity Intern)
+## Technical Notes & Interview FAQ
 
-1. **Why NetworkPolicies Require an Active CNI**:
-   Kubernetes API accepts `NetworkPolicy` objects out of the box, but default cloud bridge drivers ignore them. A CNI like Calico is required to translate policies into Linux kernel packet filters (`iptables` chains or `eBPF` maps) on node veth interfaces.
-2. **Blast Radius Mitigation**:
-   Even if an attacker achieves full root/RCE on a public-facing container, network microsegmentation traps them in place: packets sent to unauthorized internal tiers or outbound C2 servers are dropped at the kernel boundary before leaving the pod.
-3. **Synergy with CDR & RBI Solutions**:
-   - **RBI (Remote Browser Isolation)** and **CDR (Content Disarm & Reconstruction)** prevent malware from entering the environment at the perimeter/content layer.
-   - **Network Microsegmentation** provides the critical zero-trust safety net: if an unknown exploit evades upstream filters, microsegmentation contains the compromise and prevents lateral movement.
+### 1. How do NetworkPolicies differ from traditional firewalls?
+Traditional firewalls sit at network perimeters and filter by static IP/CIDR and ports (North-South). In Kubernetes, pods are ephemeral and IPs change constantly. NetworkPolicies enforce microsegmentation *inside* the cluster (East-West) using declarative label selectors (`matchLabels: tier=backend`) at the pod veth interface.
 
-For detailed question-and-answer scripts and technical deep-dives, see the [Microsegmentation Project README](./microsegmentation/README.md).
+### 2. Why is Calico needed in Minikube?
+The Kubernetes API accepts and stores `NetworkPolicy` objects regardless of CNI. However, the default basic CNI does not implement a network policy controller. Without a CNI like Calico or Cilium, policies are silently ignored and traffic remains completely open. Calico reads the policy objects and programs the actual `iptables` or `eBPF` rules in the Linux kernel on each node.
+
+### 3. What happens if you apply default-deny egress without allowing DNS?
+Everything breaks. In Kubernetes, service discovery relies on CoreDNS running in `kube-system` on port 53. If you drop all egress, pods can no longer resolve names like `backend.shop.svc.cluster.local`. Egress policies must explicitly allow UDP/TCP port 53 to `kube-system`.
+
+### 4. What is the blast radius if an attacker gets RCE on the frontend?
+Without NetworkPolicy, the attacker can port scan the internal subnet, reach the database directly, or query internal APIs. With microsegmentation, packets from `frontend` to `db` are dropped at the kernel level. The attacker cannot pivot deeper into the database tier or establish reverse shells to unauthorized destinations.
+
+### 5. How does microsegmentation fit into defense-in-depth?
+It provides containment:
+- **RBI / CDR**: Protects the entry point by neutralizing threats before they hit internal systems.
+- **Network Microsegmentation**: Assumes a breach will eventually happen (Zero Trust) and restricts lateral movement so an initial foothold cannot become a full cluster compromise.
